@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple PvZ Fusion Game</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #1a4314;
+            color: white;
+            text-align: center;
+            margin: 0;
+            padding: 20px;
+        }
+        h1 {
+            margin-bottom: 5px;
+            color: #76ff03;
+        }
+        #hud {
+            font-size: 20px;
+            margin-bottom: 15px;
+            background: #2e7d32;
+            display: inline-block;
+            padding: 10px 20px;
+            border-radius: 8px;
+            border: 2px solid #aeea00;
+        }
+        #game-container {
+            position: relative;
+            width: 800px;
+            height: 500px;
+            background: #4caf50;
+            margin: 0 auto;
+            border: 4px solid #2e7d32;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.5);
+        }
+        .lane {
+            position: relative;
+            height: 100px;
+            width: 100%;
+            border-bottom: 1px dashed rgba(255,255,255,0.3);
+            display: flex;
+        }
+        .cell {
+            width: 100px;
+            height: 100px;
+            border-right: 1px dashed rgba(255,255,255,0.2);
+            box-sizing: border-box;
+            cursor: pointer;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+            transition: background 0.2s;
+        }
+        .cell:hover {
+            background: rgba(255, 255, 255, 0.15);
+        }
+        #toolbar {
+            margin-top: 15px;
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+        }
+        .plant-card {
+            background: #33691e;
+            border: 3px solid #8bc34a;
+            border-radius: 8px;
+            padding: 10px 15px;
+            cursor: pointer;
+            font-weight: bold;
+            color: #fff;
+            transition: all 0.2s;
+            user-select: none;
+        }
+        .plant-card:hover {
+            background: #558b2f;
+            transform: translateY(-2px);
+        }
+        .plant-card.selected {
+            border-color: #ffeb3b;
+            background: #689f38;
+            box-shadow: 0 0 10px #ffeb3b;
+        }
+        .plant-card.disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .bullet {
+            position: absolute;
+            width: 12px;
+            height: 12px;
+            background: #76ff03;
+            border-radius: 50%;
+            box-shadow: 0 0 5px #fff;
+            z-index: 5;
+        }
+        .zombie {
+            position: absolute;
+            width: 50px;
+            height: 80px;
+            background: #d32f2f;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            z-index: 10;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+        }
+        #instructions {
+            margin-top: 15px;
+            font-size: 14px;
+            color: #c8e6c9;
+            max-width: 800px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>PvZ Fusion Lite</h1>
+    <div id="hud">
+        ☀️ Sun: <span id="sun-count">150</span> | 🧟 Score: <span id="score">0</span>
+    </div>
+
+    <div id="game-container">
+        <!-- 5 Lanes x 8 Columns Grid -->
+        <div class="lane" data-row="0"></div>
+        <div class="lane" data-row="1"></div>
+        <div class="lane" data-row="2"></div>
+        <div class="lane" data-row="3"></div>
+        <div class="lane" data-row="4"></div>
+    </div>
+
+    <div id="toolbar">
+        <div class="plant-card" onclick="selectPlant('sunflower')">🌻 Sunflower (50 sun)</div>
+        <div class="plant-card" onclick="selectPlant('peashooter')">🌱 Peashooter (100 sun)</div>
+        <div class="plant-card" onclick="selectPlant('wallnut')">🥔 Wall-nut (50 sun)</div>
+    </div>
+
+    <div id="instructions">
+        <strong>How to play:</strong> Select a plant from the toolbar and click on a grid cell to plant it. 
+        <strong>Fusion Mechanic:</strong> Place a plant on top of an existing plant to fuse them together into a stronger hybrid!
+    </div>
+
+    <script>
+        // Game State
+        let sun = 150;
+        let score = 0;
+        let selectedPlantType = null;
+        
+        // Grid setup: 5 rows, 8 columns
+        const grid = Array(5).fill(null).map(() => Array(8).fill(null));
+        const zombies = [];
+        const bullets = [];
+
+        // Plant Definitions & Fusions
+        const plantTypes = {
+            sunflower: { emoji: '🌻', cost: 50, hp: 100 },
+            peashooter: { emoji: '🌱', cost: 100, hp: 100, damage: 25, coolDown: 90 },
+            wallnut: { emoji: '🥔', cost: 50, hp: 500 },
+            
+            // Fusions
+            'sunflower+peashooter': { emoji: '🌞🔫', hp: 120, damage: 25, sunGen: 25, coolDown: 90 },
+            'peashooter+sunflower': { emoji: '🌞🔫', hp: 120, damage: 25, sunGen: 25, coolDown: 90 },
+            'wallnut+peashooter': { emoji: '🛡️🌱', hp: 600, damage: 25, coolDown: 90 },
+            'peashooter+wallnut': { emoji: '🛡️🌱', hp: 600, damage: 25, coolDown: 90 },
+            'wallnut+sunflower': { emoji: '💰🥔', hp: 600, sunGen: 30 },
+            'sunflower+wallnut': { emoji: '💰🥔', hp: 600, sunGen: 30 }
+        };
+
+        // Initialize DOM Grid
+        const container = document.getElementById('game-container');
+        const lanes = document.querySelectorAll('.lane');
+        
+        lanes.forEach((lane, rIndex) => {
+            for (let cIndex = 0; cIndex < 8; cIndex++) {
+                const cell = document.createElement('div');
+                cell.className = 'cell';
+                cell.dataset.row = rIndex;
+                cell.dataset.col = cIndex;
+                cell.onclick = () => handleCellClick(rIndex, cIndex);
+                lane.appendChild(cell);
+            }
+        });
+
+        function selectPlant(type) {
+            selectedPlantType = type;
+            document.querySelectorAll('.plant-card').forEach(card => card.classList.remove('selected'));
+            event.currentTarget.classList.add('selected');
+        }
+
+        function updateHUD() {
+            document.getElementById('sun-count').innerText = sun;
+            document.getElementById('score').innerText = score;
+        }
+
+        function handleCellClick(r, c) {
+            if (!selectedPlantType) return;
+            const cost = plantTypes[selectedPlantType].cost;
+
+            if (sun < cost) {
+                alert("Not enough sun!");
+                return;
+            }
+
+            const existingPlant = grid[r][c];
+
+            if (!existingPlant) {
+                // Plant fresh
+                sun -= cost;
+                grid[r][c] = {
+                    type: selectedPlantType,
+                    hp: plantTypes[selectedPlantType].hp,
+                    maxHp: plantTypes[selectedPlantType].hp,
+                    timer: 0,
+                    sunTimer: 0
+                };
+            } else {
+                // Fusion mechanic! Combine existing + selected
+                const fusionKey1 = `${existingPlant.type}+${selectedPlantType}`;
+                const fusionKey2 = `${selectedPlantType}+${existingPlant.type}`;
+                
+                let newType = null;
+                if (plantTypes[fusionKey1]) newType = fusionKey1;
+                else if (plantTypes[fusionKey2]) newType = fusionKey2;
+                else {
+                    // Default fallback if no special fusion defined: upgrade HP
+                    newType = existingPlant.type;
+                }
+
+                if (sun < cost) {
+                    alert("Not enough sun for fusion!");
+                    return;
+                }
+
+                sun -= cost;
+                grid[r][c] = {
+                    type: newType,
+                    hp: plantTypes[newType].hp,
+                    maxHp: plantTypes[newType].hp,
+                    timer: 0,
+                    sunTimer: 0
+                };
+            }
+
+            selectedPlantType = null;
+            document.querySelectorAll('.plant-card').forEach(card => card.classList.remove('selected'));
+            renderGrid();
+            updateHUD();
+        }
+
+        function renderGrid() {
+            lanes.forEach((lane, r) => {
+                const cells = lane.children;
+                for (let c = 0; c < 8; c++) {
+                    const plant = grid[r][c];
+                    cells[c].innerText = plant ? plantTypes[plant.type].emoji : '';
+                }
+            });
+        }
+
+        // Spawn Zombies periodically
+        setInterval(() => {
+            const r = Math.floor(Math.random() * 5);
+            zombies.push({
+                row: r,
+                x: 800,
+                hp: 100,
+                speed: 0.5
+            });
+        }, 7000);
+
+        // Natural Sun Generator
+        setInterval(() => {
+            sun += 25;
+            updateHUD();
+        }, 10000);
+
+        // Main Game Loop
+        function gameLoop() {
+            // Update Bullets
+            for (let i = bullets.length - 1; i >= 0; i--) {
+                let b = bullets[i];
+                b.x += 5;
+
+                // Check collision with zombies
+                for (let z of zombies) {
+                    if (z.row === b.row && Math.abs(z.x - b.x) < 20) {
+                        z.hp -= b.damage;
+                        bullets.splice(i, 1);
+                        break;
+                    }
+                }
+
+                // Remove out-of-bounds bullets
+                if (b && b.x > 800) {
+                    bullets.splice(i, 1);
+                }
+            }
+
+            // Update Plants (Shooting & Sun production)
+            for (let r = 0; r < 5; r++) {
+                for (let c = 0; c < 8; c++) {
+                    let plant = grid[r][c];
+                    if (!plant) continue;
+                    let stats = plantTypes[plant.type];
+
+                    // Shooting behavior
+                    if (stats.damage) {
+                        plant.timer++;
+                        // Check if any zombie is ahead in the same row
+                        let zombieAhead = zombies.some(z => z.row === r && z.x > c * 100 && z.x < 800);
+                        if (zombieAhead && plant.timer >= stats.coolDown) {
+                            bullets.push({ row: r, x: c * 100 + 50, damage: stats.damage });
+                            plant.timer = 0;
+                        }
+                    }
+
+                    // Sun production behavior
+                    if (stats.sunGen) {
+                        plant.sunTimer = (plant.sunTimer || 0) + 1;
+                        if (plant.sunTimer >= 300) { // roughly every 5 seconds at 60fps
+                            sun += stats.sunGen;
+                            plant.sunTimer = 0;
+                            updateHUD();
+                        }
+                    }
+                }
+            }
+
+            // Update Zombies
+            for (let i = zombies.length - 1; i >= 0; i--) {
+                let z = zombies[i];
+                let col = Math.floor(z.x / 100);
+                
+                // Check if eating plant
+                let eating = false;
+                if (col >= 0 && col < 8) {
+                    let plant = grid[z.row][col];
+                    if (plant && z.x - (col * 100) < 40) {
+                        plant.hp -= 1;
+                        eating = true;
+                        if (plant.hp <= 0) {
+                            grid[z.row][col] = null;
+                            renderGrid();
+                        }
+                    }
+                }
+
+                if (!eating) {
+                    z.x -= z.speed;
+                }
+
+                // Check death
+                if (z.hp <= 0) {
+                    zombies.splice(i, 1);
+                    score += 50;
+                    updateHUD();
+                } else if (z.x < 0) {
+                    alert("Zombies Ate Your Brains! Game Over.");
+                    location.reload();
+                }
+            }
+
+            redrawEntities();
+            requestAnimationFrame(gameLoop);
+        }
+
+        function redrawEntities() {
+            // Remove old visual elements
+            document.querySelectorAll('.bullet, .zombie').forEach(el => el.remove());
+
+            // Draw Bullets
+            bullets.forEach(b => {
+                let el = document.createElement('div');
+                el.className = 'bullet';
+                el.style.left = b.x + 'px';
+                el.style.top = (b.row * 100 + 44) + 'px';
+                container.appendChild(el);
+            });
+
+            // Draw Zombies
+            zombies.forEach(z => {
+                let el = document.createElement('div');
+                el.className = 'zombie';
+                el.style.left = z.x + 'px';
+                el.style.top = (z.row * 100 + 10) + 'px';
+                el.innerHTML = '🧟';
+                container.appendChild(el);
+            });
+        }
+
+        // Start loop
+        requestAnimationFrame(gameLoop);
+    </script>
+</body>
+</html>
